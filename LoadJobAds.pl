@@ -20,8 +20,6 @@ my $adm_filename = "/home/imaxon/asterix-mgmt/clusters/local/working_dir/condor/
 # command
 my $schedds_command = $condor_bin_dir . "condor_status -schedd -af name";
 my $jobads_command = $condor_bin_dir . "condor_history -l -pool cm.chtc.wisc.edu -name %s -cons 'CompletionDate>%s && JobUniverse=!=12'";
-### TODO: Change this to a sub
-my $jobads_to_adm_command = "cat %s | /home/green22/condor_asterix/ClassAdToJson.pl";
 
 # db
 my $asterixdb_url = "http://localhost:19002/";
@@ -125,13 +123,8 @@ foreach my $schedd (@schedd_list){
 	########
 	
 	# convert job ads to ADM
-	print_log("convert raw job ad to adm format");
-	open(FILE, '>', $adm_filename) or die "Unable to open file '$adm_filename' $!";
-	my $command = sprintf($jobads_to_adm_command, $jobads_backup_filename);
-	$output = `$command`;
-	die "Command did not successfully complete '$command' $!" if $?;
-	print FILE $output;
-	close FILE;
+	classad_to_adm($jobads_backup_filename, $adm_filename);
+	
 
 	# get count before update
 	#print_log("get before count");
@@ -248,3 +241,64 @@ sub get_newest_completion_date
 	close FILE;
 
 }		
+
+# sub to convert classad to adm.  Code from gthain. 
+sub classad_to_adm {
+
+	print_log("convert raw job ad to adm format");
+
+	my $key;
+	my $value;
+	my $adm_output = "{";
+	my $classads_filename = $_[0];
+	my $adm_filename = $_[1];
+
+	open(FILE, "<", $classads_filename) or die "unable to open $classads_filename: $!\n";
+	while (<FILE>) {
+
+		if(/^$/) {
+			$adm_output = substr($adm_output, 0, -1);
+			$adm_output .= "\n}{";
+			next;
+		}
+
+		if (/(.*)\s=\s(.*)\n/){
+			$key = $1;
+			$value = $2;
+
+			$adm_output .= "\n\"$1\":";
+
+			if($key eq "RemoteWallClockTime"){
+                	        $value =~ /(\d+)/;
+                       		$adm_output .= "$1,";
+                        	next;
+                	}
+
+                	if ($value =~ /^["]/) {
+                        	$adm_output .= "$value,";
+                        	next;
+                	}
+
+                	if ($value =~ /^[0-9.e+\-]+$/) {
+                        	$adm_output .= "$value,";
+                        	next;
+                	}
+
+                	if ($value =~ /^(true|false)$/i) {
+                        	$adm_output .= "$value,";
+                        	next;
+                	}
+
+                	$value =~ s/"/\\"/g;
+
+                	$adm_output .= "\"$value\"";
+		}
+
+	}	
+	$adm_output = substr($adm_output, 0, -1);
+	close(FILE);
+
+	open(FILE, '>', $adm_filename);
+	print FILE $adm_output;
+	close(FILE);
+}
