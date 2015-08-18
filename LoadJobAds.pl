@@ -6,6 +6,7 @@ use warnings;
 use LWP::UserAgent;
 use URI::Escape('uri_escape');
 use File::Basename;
+use IPC::System::Simple qw(capture capturex);
 
 # directories
 my $backup_dir = "/opt/jobAds/";
@@ -59,9 +60,18 @@ insert into dataset JobAds(
 );
 
 # list of schedds
-my @schedd_list = split('\n', `$schedds_command`);
+my $schedds_command_output = capture($schedds_command) or die "unable to capture $schedds_command: $!\n";
+my @schedd_list = split('\n', $schedds_command_output);
 my $schedd_list_count = scalar @schedd_list;
 my $schedd_count = 0;
+
+my $schedd_backup_dir;
+my $jobads_backup_filename;
+my $completion_date_filename;
+my $completion_date;
+my $schedd_jobads_command; 
+my $schedd_jobads_output;   
+my $formatted_jobads_insert;
 
 # create backup directory 
 make_dir($backup_dir);
@@ -80,44 +90,49 @@ foreach my $schedd (@schedd_list){
 	}
 
 	# make backup directory for schedd
-	my $schedd_backup_dir = $backup_dir . $schedd . "/";
+	$schedd_backup_dir = $backup_dir . $schedd . "/";
 	make_dir($schedd_backup_dir);
 	
 	# backup filename for schedd
-	my $jobads_backup_filename =  $schedd_backup_dir . "jobAds_" . $timestamp;
+	$jobads_backup_filename =  $schedd_backup_dir . "jobAds_" . $timestamp;
 
 		
-	my $completion_date_filename = $schedd_backup_dir . "NewestCompletionDate";
+	$completion_date_filename = $schedd_backup_dir . "NewestCompletionDate";
 
 	if (! -f $completion_date_filename){
 		print_log("creating $completion_date_filename");
 		get_newest_completion_date($schedd_backup_dir . "jobAds_*");
 	}
 
-	
 	open(FILE, "<", $completion_date_filename) or die "unable to open $completion_date_filename\n";
-	my $completion_date = <FILE>;
+	$completion_date = <FILE>;
 	close FILE;
 
 	print_log("completion date $completion_date to generate backup");
 
 	# write raw job ads to file
 	print_log("backup raw job ads to $jobads_backup_filename");
-	open(my $file, '>', $jobads_backup_filename) or die "Unable to open file '$jobads_backup_filename' $!";
+	open(FILE, '>', $jobads_backup_filename) or die "Unable to open file '$jobads_backup_filename' $!\n";
 	
-	my $schedd_jobads_command = sprintf($jobads_command,  $schedd, $completion_date);
-	my $output = `$schedd_jobads_command`; 
-	if ($?){
+	$schedd_jobads_command = sprintf($jobads_command,  $schedd, $completion_date);
+	
+	eval {
+		$schedd_jobads_output = capture($schedd_jobads_command); 
+	};
+
+	if ($@){
 		print_log("Command did not successfully complete '$schedd_jobads_command' $!");
 		print_log("skipping schedd '$schedd'");
 		next;
 	} 
-	print $file $output;
-	close $file;
+
+	print FILE $schedd_jobads_output;
+	close FILE;
 
 	print_log("check for completion date in $jobads_backup_filename");
 	get_newest_completion_date($jobads_backup_filename);
 
+	
 	######## remove this
 	next;
 	########
@@ -132,7 +147,7 @@ foreach my $schedd (@schedd_list){
 	#my $before_count =  $1;
 
 	# add schedd to asterixdb command
-	my $formatted_jobads_insert = sprintf($jobads_insert, $schedd);
+	$formatted_jobads_insert = sprintf($jobads_insert, $schedd);
 
 	# move raw data into JobAds dataset
 	print_log("move data from external dataset to JobAds");
