@@ -30,32 +30,36 @@ count(for $el in dataset JobAds return $el);
 );
 my $jobads_insert = $asterixdb_dataverse . q(
 insert into dataset JobAds(
-	for $el in dataset RawCondorJobAds
 
-	where 
+	 let $dups := (
+		  for $j in dataset RawCondorJobAds
+		  for $check in dataset JobAds
+		  where
+		  $check.GlobalJobId  /*+ indexnl */  = $j.GlobalJobId
+		  return $j.GlobalJobId
+	 )
 
-	not(some $check in dataset JobAds satisfies $check.GlobalJobId = $el.GlobalJobId)
+	 for $el in dataset RawCondorJobAds
+	 where
+	 not(some $d in $dups satisfies $d = $el.GlobalJobId)
+		  and
+	 $el.GlobalJobId != ""
 
-	and
-
-	$el.GlobalJobId != ""
-
-	let $RemoteWallClockTimeDuration := duration(string-concat(["P", string($el.RemoteWallClockTime), "S"]))
-
-	return {
-		"GlobalJobId": $el.GlobalJobId,
-		"Raw" : $el,
-		"Owner" : {"name": $el.Owner },
-		"ClusterId" : $el.ClusterId,
-		"ProcId" : $el.ProcId,
-		"RemoteWallClockTime" : $RemoteWallClockTimeDuration,
-		"CompletionDate" : datetime-from-unix-time-in-secs($el.CompletionDate),
-		"QDate" : datetime-from-unix-time-in-secs($el.QDate),
-		"JobCurrentStartDate" : datetime-from-unix-time-in-secs($el.JobCurrentStartDate),
-		"JobStartDate" : datetime-from-unix-time-in-secs($el.JobStartDate),
-		"JobCurrentStartExecutingDate" : datetime-from-unix-time-in-secs($el.JobCurrentStartExecutingDate),
-		"Schedd" : string("%s")
-	}
+	 let $RemoteWallClockTimeDuration := duration(string-concat(["P", string($el.RemoteWallClockTime), "S"]))
+	 return {
+		  "GlobalJobId": $el.GlobalJobId,
+		  "Raw" : $el,
+		  "Owner" : {"name": $el.Owner },
+		  "ClusterId" : $el.ClusterId,
+		  "ProcId" : $el.ProcId,
+		  "RemoteWallClockTime" : $RemoteWallClockTimeDuration,
+		  "CompletionDate" : datetime-from-unix-time-in-secs($el.CompletionDate),
+		  "QDate" : datetime-from-unix-time-in-secs($el.QDate),
+		  "JobCurrentStartDate" : datetime-from-unix-time-in-secs($el.JobCurrentStartDate),
+		  "JobStartDate" : datetime-from-unix-time-in-secs($el.JobStartDate),
+		  "JobCurrentStartExecutingDate" : datetime-from-unix-time-in-secs($el.JobCurrentStartExecutingDate),
+		  "Schedd" : string("%s")
+	 }
 );
 );
 
